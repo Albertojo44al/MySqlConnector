@@ -30,3 +30,24 @@ Async version of Commit
 
 Async version of Rollback
 ***
+`public Task Save(string name)`
+
+`public Task SaveAsync(string name, CancellationToken cancellationToken = default)`
+
+ Sets a named transaction savepoint with the specified `name`. If the current transaction already has
+ a savepoint with the same name, the old savepoint is deleted and a new one is set.
+***
+`public Task Release(string name)`
+
+`public Task ReleaseAsync(string name, CancellationToken cancellationToken = default)`
+
+ Removes the named transaction savepoint with the specified `name`. No commit or rollback occurs.
+***
+***
+`public Task Rollback(string name)`
+
+`public Task RollbackAsync(string name, CancellationToken cancellationToken = default)`
+
+ Rolls back the current transaction to the savepoint with the specified `name` without aborting the transaction.
+ The name must have been created with `Save`, but not released by calling `Release`.
+***

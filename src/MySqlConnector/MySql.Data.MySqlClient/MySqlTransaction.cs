@@ -19,25 +19,12 @@ namespace MySql.Data.MySqlClient
 
 		private async Task CommitAsync(IOBehavior ioBehavior, CancellationToken cancellationToken)
 		{
-			VerifyNotDisposed();
-			if (Connection is null)
-				throw new InvalidOperationException("Already committed or rolled back.");
+			VerifyValid();
 
-			if (Connection.CurrentTransaction == this)
-			{
-				using (var cmd = new MySqlCommand("commit", Connection, this))
-					await cmd.ExecuteNonQueryAsync(ioBehavior, cancellationToken).ConfigureAwait(false);
-				Connection.CurrentTransaction = null;
-				Connection = null;
-			}
-			else if (Connection.CurrentTransaction is object)
-			{
-				throw new InvalidOperationException("This is not the active transaction.");
-			}
-			else if (Connection.CurrentTransaction is null)
-			{
-				throw new InvalidOperationException("There is no active transaction.");
-			}
+			using (var cmd = new MySqlCommand("commit", Connection, this))
+				await cmd.ExecuteNonQueryAsync(ioBehavior, cancellationToken).ConfigureAwait(false);
+			Connection!.CurrentTransaction = null;
+			Connection = null;
 		}
 
 		public override void Rollback() => RollbackAsync(IOBehavior.Synchronous, default).GetAwaiter().GetResult();
@@ -49,25 +36,34 @@ namespace MySql.Data.MySqlClient
 
 		private async Task RollbackAsync(IOBehavior ioBehavior, CancellationToken cancellationToken)
 		{
-			VerifyNotDisposed();
-			if (Connection is null)
-				throw new InvalidOperationException("Already committed or rolled back.");
+			VerifyValid();
 
-			if (Connection.CurrentTransaction == this)
-			{
-				using (var cmd = new MySqlCommand("rollback", Connection, this))
-					await cmd.ExecuteNonQueryAsync(ioBehavior, cancellationToken).ConfigureAwait(false);
-				Connection.CurrentTransaction = null;
-				Connection = null;
-			}
-			else if (Connection.CurrentTransaction is object)
-			{
-				throw new InvalidOperationException("This is not the active transaction.");
-			}
-			else if (Connection.CurrentTransaction is null)
-			{
-				throw new InvalidOperationException("There is no active transaction.");
-			}
+			using (var cmd = new MySqlCommand("rollback", Connection, this))
+				await cmd.ExecuteNonQueryAsync(ioBehavior, cancellationToken).ConfigureAwait(false);
+			Connection!.CurrentTransaction = null;
+			Connection = null;
+		}
+
+		public void Release(string name) => ExecuteSavepointAsync("release ", name, IOBehavior.Synchronous, default).GetAwaiter().GetResult();
+		public Task ReleaseAsync(string name, CancellationToken cancellationToken = default) => ExecuteSavepointAsync("release ", name, Connection?.AsyncIOBehavior ?? IOBehavior.Asynchronous, cancellationToken);
+
+		public void Rollback(string name) => ExecuteSavepointAsync("rollback to ", name, IOBehavior.Synchronous, default).GetAwaiter().GetResult();
+		public Task RollbackAsync(string name, CancellationToken cancellationToken = default) => ExecuteSavepointAsync("rollback to ", name, Connection?.AsyncIOBehavior ?? IOBehavior.Asynchronous, cancellationToken);
+
+		public void Save(string name) => ExecuteSavepointAsync("", name, IOBehavior.Synchronous, default).GetAwaiter().GetResult();
+		public Task SaveAsync(string name, CancellationToken cancellationToken = default) => ExecuteSavepointAsync("", name, Connection?.AsyncIOBehavior ?? IOBehavior.Asynchronous, cancellationToken);
+
+		private async Task ExecuteSavepointAsync(string command, string name, IOBehavior ioBehavior, CancellationToken cancellationToken)
+		{
+			VerifyValid();
+
+			if (name is null)
+				throw new ArgumentNullException(nameof(name));
+			if (name.Length == 0)
+				throw new ArgumentException("name must not be empty", nameof(name));
+
+			using var cmd = new MySqlCommand(command + "savepoint " + QuoteIdentifier(name), Connection, this);
+			await cmd.ExecuteNonQueryAsync(ioBehavior, cancellationToken).ConfigureAwait(false);
 		}
 
 		public new MySqlConnection? Connection { get; private set; }
@@ -130,11 +126,19 @@ namespace MySql.Data.MySqlClient
 			IsolationLevel = isolationLevel;
 		}
 
-		private void VerifyNotDisposed()
+		private void VerifyValid()
 		{
 			if (m_isDisposed)
 				throw new ObjectDisposedException(nameof(MySqlTransaction));
+			if (Connection is null)
+				throw new InvalidOperationException("Already committed or rolled back.");
+			if (Connection.CurrentTransaction is null)
+				throw new InvalidOperationException("There is no active transaction.");
+			if (!object.ReferenceEquals(Connection.CurrentTransaction, this))
+				throw new InvalidOperationException("This is not the active transaction.");
 		}
+
+		private static string QuoteIdentifier(string identifier) => "`" + identifier.Replace("`", "``") + "`";
 
 		bool m_isDisposed;
 	}
